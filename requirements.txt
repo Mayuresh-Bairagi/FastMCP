@@ -1,2 +1,2 @@
-fastapi-mcp
+fastapi
 uvicorn[standard]

@@ -1,5 +1,5 @@
-from fastapi import FastAPI
-from fastapi_mcp import FastApiMCP
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 description = """
 ## Demo MCP Server
@@ -205,9 +205,147 @@ def reverse_string(text: str) -> dict:
     return {"original": text, "reversed": text[::-1]}
 
 
-# ── Mount MCP on /mcp ─────────────────────────────────────────────────────────
-mcp = FastApiMCP(app)
-mcp.mount()
+# ── MCP Streamable HTTP endpoint (POST /mcp) ────────────────────────────────
+# Implements MCP Streamable HTTP transport (mcp-streamable-1.0) for
+# Microsoft Copilot Studio and other MCP-compatible clients.
+
+@app.post("/mcp", operation_id="InvokeMCP", summary="MCP Streamable HTTP endpoint")
+async def mcp_streamable_http(request: Request):
+    """
+    Streamable HTTP transport handler for MCP-compatible clients (e.g. Microsoft Copilot Studio).
+    Accepts JSON-RPC 2.0 messages and returns MCP responses.
+    """
+    body = await request.json()
+    method = body.get("method", "")
+    req_id = body.get("id", 1)
+
+    if method == "initialize":
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": "Demo MCP Server",
+                    "version": "1.0.0"
+                }
+            }
+        })
+
+    if method == "tools/list":
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "greet_user",
+                        "description": "Returns a greeting message for a provided name.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Name to greet", "default": "World"}
+                            }
+                        }
+                    },
+                    {
+                        "name": "calculate",
+                        "description": "Performs add, subtract, multiply, or divide on two numbers.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "a": {"type": "number", "description": "First number"},
+                                "b": {"type": "number", "description": "Second number"},
+                                "operation": {"type": "string", "description": "add | subtract | multiply | divide", "default": "add"}
+                            },
+                            "required": ["a", "b"]
+                        }
+                    },
+                    {
+                        "name": "get_weather",
+                        "description": "Returns mock weather data for a city.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "city": {"type": "string", "description": "City name"}
+                            },
+                            "required": ["city"]
+                        }
+                    },
+                    {
+                        "name": "reverse_string",
+                        "description": "Returns the reverse of the provided text.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string", "description": "Text to reverse"}
+                            },
+                            "required": ["text"]
+                        }
+                    }
+                ]
+            }
+        })
+
+    if method == "tools/call":
+        tool_name = body.get("params", {}).get("name", "")
+        args = body.get("params", {}).get("arguments", {})
+
+        if tool_name == "greet_user":
+            name = args.get("name", "World")
+            result = {"message": f"Hello, {name}! Welcome to the Demo MCP Server."}
+
+        elif tool_name == "calculate":
+            a = float(args.get("a", 0))
+            b = float(args.get("b", 0))
+            operation = args.get("operation", "add")
+            ops = {"add": a + b, "subtract": a - b, "multiply": a * b, "divide": a / b if b != 0 else None}
+            if operation not in ops:
+                result = {"error": f"Unknown operation '{operation}'."}
+            elif ops[operation] is None:
+                result = {"error": "Division by zero is not allowed."}
+            else:
+                result = {"a": a, "b": b, "operation": operation, "result": ops[operation]}
+
+        elif tool_name == "get_weather":
+            city = args.get("city", "")
+            mock_data = {
+                "new york": {"temp_c": 15, "condition": "Partly Cloudy", "humidity": 60},
+                "london": {"temp_c": 10, "condition": "Rainy", "humidity": 80},
+                "tokyo": {"temp_c": 22, "condition": "Sunny", "humidity": 55},
+                "paris": {"temp_c": 13, "condition": "Overcast", "humidity": 70},
+                "sydney": {"temp_c": 28, "condition": "Clear", "humidity": 45},
+            }
+            result = {"city": city, **mock_data.get(city.lower(), {"temp_c": 20, "condition": "Unknown", "humidity": 50})}
+
+        elif tool_name == "reverse_string":
+            text = args.get("text", "")
+            result = {"original": text, "reversed": text[::-1]}
+
+        else:
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": f"Tool '{tool_name}' not found."}
+            })
+
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "content": [{"type": "text", "text": str(result)}]
+            }
+        })
+
+    # Unknown method
+    return JSONResponse({
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "error": {"code": -32601, "message": f"Method '{method}' not supported."}
+    }, status_code=200)
 
 
 if __name__ == "__main__":
