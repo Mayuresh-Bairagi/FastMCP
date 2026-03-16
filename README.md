@@ -1,6 +1,6 @@
-# Demo MCP Server with FastAPI
+# ContextBridge MCP Server
 
-A simple demo **Model Context Protocol (MCP)** server built using [FastAPI](https://fastapi.tiangolo.com/) and [fastapi-mcp](https://github.com/tadata-org/fastapi_mcp). This project is for demonstration purposes only.
+A simple demo **Model Context Protocol (MCP)** server built using [FastAPI](https://fastapi.tiangolo.com/). This project is for demonstration purposes only and uses API key authentication for the MCP endpoint.
 
 ---
 
@@ -9,6 +9,8 @@ A simple demo **Model Context Protocol (MCP)** server built using [FastAPI](http
 ```
 FastMCP/
 ├── main.py           # FastAPI app with MCP tools
+├── .env.example      # Example API key configuration
+├── MCP_SERVER_VALIDATION_GUIDE.md
 ├── requirements.txt  # Python dependencies
 └── README.md         # This file
 ```
@@ -39,6 +41,20 @@ FastMCP/
 pip install -r requirements.txt
 ```
 
+Set an API key before starting the server.
+
+PowerShell:
+
+```powershell
+$env:MCP_API_KEY = "your-demo-key"
+```
+
+Command Prompt:
+
+```cmd
+set MCP_API_KEY=your-demo-key
+```
+
 ---
 
 ## Running the Server
@@ -53,7 +69,7 @@ The server starts at `http://localhost:8000`.
 |---|---|
 | `http://localhost:8000/docs` | Interactive Swagger UI |
 | `http://localhost:8000/redoc` | ReDoc API docs |
-| `http://localhost:8000/mcp` | MCP endpoint |
+| `http://localhost:8000/mcp` | MCP endpoint (POST only, requires `x-api-key`) |
 
 ---
 
@@ -95,6 +111,15 @@ GET http://localhost:8000/reverse?text=hello
 
 ## Connecting an MCP Client
 
+The MCP endpoint uses API key authentication.
+
+Required headers:
+
+```http
+Content-Type: application/json
+x-api-key: your-demo-key
+```
+
 Add the following to your MCP client config (e.g. VS Code or Claude Desktop):
 
 ```json
@@ -113,5 +138,10 @@ Add the following to your MCP client config (e.g. VS Code or Claude Desktop):
 
 | Package | Purpose |
 |---|---|
-| `fastapi-mcp` | Converts FastAPI routes into MCP tools |
+| `fastapi` | API framework |
 | `uvicorn` | ASGI server to run the FastAPI app |
+
+## Authentication Failure
+
+If the `x-api-key` header is missing or incorrect, the MCP endpoint returns HTTP `401 Unauthorized` with a JSON-RPC error payload.
+

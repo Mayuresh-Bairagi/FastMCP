@@ -1,5 +1,13 @@
+import hmac
+import os
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+
+SERVER_NAME = "ContextBridge MCP Server"
+SERVER_VERSION = "1.0.0"
+MCP_API_KEY = os.getenv("MCP_API_KEY", "change-me-demo-key")
 
 description = """
 ## Demo MCP Server
@@ -25,9 +33,9 @@ Connect any MCP-compatible client to: **`/mcp`**
 """
 
 app = FastAPI(
-    title="Demo MCP Server",
+    title=SERVER_NAME,
     description=description,
-    version="1.0.0",
+    version=SERVER_VERSION,
     contact={
         "name": "Demo Project",
     },
@@ -37,12 +45,18 @@ app = FastAPI(
 )
 
 
+def is_authorized(request: Request) -> bool:
+    """Validate the demo API key for MCP requests."""
+    provided_key = request.headers.get("x-api-key", "")
+    return hmac.compare_digest(provided_key, MCP_API_KEY)
+
+
 @app.get("/", operation_id="landing_page", summary="Show route guide")
 def landing_page() -> dict:
     """Return a route catalog with inputs, outputs, and usage examples."""
     return {
-        "service": "Demo MCP Server",
-        "version": "1.0.0",
+        "service": SERVER_NAME,
+        "version": SERVER_VERSION,
         "description": "Landing route with documentation for all available routes.",
         "routes": [
             {
@@ -53,7 +67,7 @@ def landing_page() -> dict:
                 "how_to_access": "GET /",
                 "input": "No query parameters required.",
                 "expected_output": {
-                    "service": "Demo MCP Server",
+                    "service": SERVER_NAME,
                     "routes": "List of route documentation objects",
                 },
             },
@@ -71,7 +85,7 @@ def landing_page() -> dict:
                     }
                 },
                 "expected_output": {
-                    "message": "Hello, Alice! Welcome to the Demo MCP Server.",
+                    "message": "Hello, Alice! Welcome to the ContextBridge MCP Server.",
                 },
             },
             {
@@ -129,12 +143,16 @@ def landing_page() -> dict:
             },
             {
                 "name": "MCP Endpoint",
-                "method": "GET/POST (managed by MCP client)",
+                "method": "POST",
                 "path": "/mcp",
-                "description": "MCP transport endpoint used by MCP-compatible clients.",
-                "how_to_access": "Configure MCP client with URL: /mcp (or https://your-domain.com/mcp)",
-                "input": "MCP protocol messages from client.",
+                "description": "MCP Streamable HTTP endpoint used by MCP-compatible clients and protected by an API key.",
+                "how_to_access": "POST /mcp with headers Content-Type: application/json and x-api-key: <your-api-key>",
+                "input": "JSON-RPC MCP messages in the request body.",
                 "expected_output": "MCP protocol responses.",
+                "authentication": {
+                    "type": "apiKey",
+                    "header": "x-api-key",
+                },
             },
         ],
     }
@@ -144,7 +162,7 @@ def landing_page() -> dict:
 @app.get("/greet", operation_id="greet_user", summary="Greet a user by name")
 def greet_user(name: str = "World") -> dict:
     """Return a friendly greeting for the given name."""
-    return {"message": f"Hello, {name}! Welcome to the Demo MCP Server."}
+    return {"message": f"Hello, {name}! Welcome to the {SERVER_NAME}."}
 
 
 # ── Tool 2: Basic calculator ──────────────────────────────────────────────────
@@ -215,6 +233,19 @@ async def mcp_streamable_http(request: Request):
     Streamable HTTP transport handler for MCP-compatible clients (e.g. Microsoft Copilot Studio).
     Accepts JSON-RPC 2.0 messages and returns MCP responses.
     """
+    if not is_authorized(request):
+        return JSONResponse(
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32001,
+                    "message": "Unauthorized. Provide a valid x-api-key header.",
+                },
+            },
+            status_code=401,
+        )
+
     body = await request.json()
     method = body.get("method", "")
     req_id = body.get("id", 1)
@@ -229,8 +260,8 @@ async def mcp_streamable_http(request: Request):
                     "tools": {}
                 },
                 "serverInfo": {
-                    "name": "Demo MCP Server",
-                    "version": "1.0.0"
+                    "name": SERVER_NAME,
+                    "version": SERVER_VERSION
                 }
             }
         })
@@ -296,7 +327,7 @@ async def mcp_streamable_http(request: Request):
 
         if tool_name == "greet_user":
             name = args.get("name", "World")
-            result = {"message": f"Hello, {name}! Welcome to the Demo MCP Server."}
+            result = {"message": f"Hello, {name}! Welcome to the {SERVER_NAME}."}
 
         elif tool_name == "calculate":
             a = float(args.get("a", 0))
