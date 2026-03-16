@@ -3,6 +3,10 @@ import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+
+# Load local environment variables from .env when present.
+load_dotenv()
 
 
 SERVER_NAME = "ContextBridge MCP Server"
@@ -246,7 +250,34 @@ async def mcp_streamable_http(request: Request):
             status_code=401,
         )
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32700,
+                    "message": "Invalid or missing JSON body.",
+                },
+            },
+            status_code=400,
+        )
+
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request. Expected a JSON object.",
+                },
+            },
+            status_code=400,
+        )
+
     method = body.get("method", "")
     req_id = body.get("id", 1)
 
