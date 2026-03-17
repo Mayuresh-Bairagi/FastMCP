@@ -1,147 +1,158 @@
-# ContextBridge MCP Server
+# ContextBridge MCP Server (Enterprise Modular)
 
-A simple demo **Model Context Protocol (MCP)** server built using [FastAPI](https://fastapi.tiangolo.com/). This project is for demonstration purposes only and uses API key authentication for the MCP endpoint.
+FastAPI-based MCP server refactored for enterprise-oriented architecture:
 
----
+- Modular codebase by domain (`core`, `services`, `api/routes`)
+- Pluggable auth backend (`AUTH_BACKEND=demo` or `AUTH_BACKEND=oidc`)
+- Scope-based authorization at MCP method/tool level
+- Client allowlist for demo token endpoint
+- Request correlation IDs via middleware
+- Unique feature: policy simulation endpoint (`/auth/policy/preview`)
+- Practical tool: live URL health check (`url_health_check`)
 
-## Project Structure
+## Folder Structure
 
-```
+```text
 FastMCP/
-├── main.py           # FastAPI app with MCP tools
-├── .env.example      # Example API key configuration
-├── MCP_SERVER_VALIDATION_GUIDE.md
-├── requirements.txt  # Python dependencies
-└── README.md         # This file
+├── app/
+│   ├── api/
+│   │   └── routes/
+│   │       ├── auth.py
+│   │       ├── mcp.py
+│   │       └── public.py
+│   ├── core/
+│   │   ├── config.py
+│   │   ├── request_context.py
+│   │   └── security.py
+│   ├── services/
+│   │   ├── mcp_service.py
+│   │   └── tools.py
+│   ├── dependencies.py
+│   └── main.py
+├── main.py
+├── .env.example
+├── requirements.txt
+└── README.md
 ```
 
----
+## Enterprise Auth Model
 
-## Tools Exposed
+1. `MCP_AUTH_MODE` controls accepted credential types at `/mcp`.
+2. `AUTH_BACKEND` controls bearer token validation strategy.
+3. Scope enforcement is centralized for `initialize`, `tools/list`, and `tools/call`.
 
-| Tool | Operation ID | Description |
-|---|---|---|
-| Greet User | `greet_user` | Returns a greeting for a given name |
-| Calculator | `calculate` | Performs add / subtract / multiply / divide |
-| Mock Weather | `get_weather` | Returns mock weather data for a city |
-| Reverse String | `reverse_string` | Reverses the characters in a string |
+Modes:
 
----
+- `MCP_AUTH_MODE=oauth2`: Bearer only (recommended for production)
+- `MCP_AUTH_MODE=api_key`: API key only
+- `MCP_AUTH_MODE=both`: either API key or Bearer
 
-## Prerequisites
+Backends:
 
-- Python 3.10+
-- pip
+- `AUTH_BACKEND=oidc`: validate external JWT using issuer/audience/JWKS
+- `AUTH_BACKEND=demo`: issue and validate opaque in-memory demo tokens
 
----
+## Setup
 
-## Installation
+1. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Set an API key before starting the server.
+2. Copy values from `.env.example`.
 
-PowerShell:
-
-```powershell
-$env:MCP_API_KEY = "your-demo-key"
-```
-
-Command Prompt:
-
-```cmd
-set MCP_API_KEY=your-demo-key
-```
-
----
-
-## Running the Server
+3. Start server:
 
 ```bash
 python main.py
 ```
 
-The server starts at `http://localhost:8000`.
+4. Validate health:
 
-| URL | Description |
-|---|---|
-| `http://localhost:8000/docs` | Interactive Swagger UI |
-| `http://localhost:8000/redoc` | ReDoc API docs |
-| `http://localhost:8000/mcp` | MCP endpoint (POST only, requires `x-api-key`) |
-
----
-
-## Example API Calls
-
-**Greet a user**
+```http
+GET /healthz
 ```
-GET http://localhost:8000/greet?name=Alice
-```
+
+## Postman Validation (Demo Backend)
+
+Use this when `AUTH_BACKEND=demo`.
+
+1. Token request (`POST /oauth2/token`, `x-www-form-urlencoded`):
+
+- `grant_type=client_credentials`
+- `client_id=person1`
+- `client_secret=person1-secret`
+- `scope=mcp:initialize mcp:tools:list`
+
+2. MCP initialize (`POST /mcp`, raw JSON):
+
 ```json
-{ "message": "Hello, Alice! Welcome to the Demo MCP Server." }
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
 ```
 
-**Calculate**
-```
-GET http://localhost:8000/calculate?a=10&b=3&operation=multiply
-```
-```json
-{ "a": 10, "b": 3, "operation": "multiply", "result": 30 }
-```
-
-**Get Weather**
-```
-GET http://localhost:8000/weather?city=Tokyo
-```
-```json
-{ "city": "Tokyo", "temp_c": 22, "condition": "Sunny", "humidity": 55 }
-```
-
-**Reverse a String**
-```
-GET http://localhost:8000/reverse?text=hello
-```
-```json
-{ "original": "hello", "reversed": "olleh" }
-```
-
----
-
-## Connecting an MCP Client
-
-The MCP endpoint uses API key authentication.
-
-Required headers:
+Headers:
 
 ```http
 Content-Type: application/json
-x-api-key: your-demo-key
+Authorization: Bearer <access_token>
 ```
 
-Add the following to your MCP client config (e.g. VS Code or Claude Desktop):
+3. Access check:
+
+- `tools/list` should pass with `mcp:tools:list`
+- `tools/call` should fail unless `mcp:tools:call` or `mcp:tools:call:<tool_name>` is present
+
+4. Real utility tool example (`url_health_check`):
 
 ```json
 {
-  "mcpServers": {
-    "demo": {
-      "url": "http://localhost:8000/mcp"
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "url_health_check",
+    "arguments": {
+      "url": "https://www.github.com",
+      "timeout_seconds": 5
     }
   }
 }
 ```
 
----
+Scope needed:
 
-## Dependencies
+- `mcp:tools:call:url_health_check` or broader `mcp:tools:call`
 
-| Package | Purpose |
-|---|---|
-| `fastapi` | API framework |
-| `uvicorn` | ASGI server to run the FastAPI app |
+## Unique Feature: Policy Preview
 
-## Authentication Failure
+`POST /auth/policy/preview` lets security teams test policy outcomes before calling MCP.
 
-If the `x-api-key` header is missing or incorrect, the MCP endpoint returns HTTP `401 Unauthorized` with a JSON-RPC error payload.
+Body:
+
+```json
+{
+  "method": "tools/call",
+  "tool_name": "greet_user"
+}
+```
+
+Response includes:
+
+- principal
+- auth type
+- required scope
+- granted scopes
+- allow/deny decision
+- request ID
+
+## Production Guidance
+
+For enterprise deployment:
+
+1. Set `AUTH_BACKEND=oidc`
+2. Set `MCP_AUTH_MODE=oauth2`
+3. Configure `OIDC_ISSUER_URL` and `OIDC_AUDIENCE`
+4. Disable demo token endpoint usage
+5. Keep API key mode off in production
 
